@@ -1,0 +1,141 @@
+#SETUP_START
+
+from pyb import I2C
+from machine import LED
+import sensor
+import time
+import image
+import tf
+import os
+import gc
+import uos
+
+# Variables - FPS clock
+clock = time.clock()
+
+# Variables - I2C communication
+i2c = I2C(1, I2C.SLAVE, addr=0x42)
+
+# Variables - Led
+led_blue = LED("LED_BLUE")
+led_red = LED("LED_RED")
+led_green = LED("LED_GREEN")
+
+#led_blue.on()
+#led_red.on()
+#led_green.on()
+
+def led_off():
+    led_blue.off()
+    led_red.off()
+    led_green.off()
+
+# Variables - Emotion recognition
+net = None
+labels = None
+
+# Variables - Loop switch
+loop_switch = False
+
+# Sensor settings for face detection
+sensor.reset()
+sensor.set_contrast(3)
+sensor.set_gainceiling(16)
+sensor.set_framesize(sensor.HQVGA)
+sensor.set_pixformat(sensor.GRAYSCALE)
+
+# Load function for I2C communication
+def readData():
+    global loop_switch
+    buf = bytearray(5)  # Adjust buffer size for the string length
+    try:
+        i2c.recv(buf, timeout=1)
+        message = buf.decode('utf-8')  # Convert bytes to string
+        print('Message received:', message, '\n')
+        if message == 'voice':
+            loop_switch = True
+            print('loop_switch is', loop_switch)
+        if message == 'muted':
+            loop_switch = False
+            print('loop_switch is', loop_switch)
+    except:
+        pass
+
+
+# Load Haar Cascade for face detection
+face_cascade = image.HaarCascade("frontalface", stages=25)
+
+# Load emotion recognition model
+try:
+    net = tf.load("trained.tflite", load_to_fb=uos.stat('trained.tflite')[6] > (gc.mem_free() - (64*1024)))
+    labels = [line.rstrip('\n') for line in open("labels.txt")]
+except Exception as e:
+    print(e)
+    raise Exception('Failed to load model or labels.')
+
+
+#SETUP_END
+
+#Main loop
+while True:
+    led_off()
+    led_green.on()
+    led_blue.on()
+    readData()
+    if loop_switch == True:
+        while loop_switch:
+            readData()
+            clock.tick()
+            # Capture snapshot for face detection
+            img = sensor.snapshot()
+
+            # Find faces
+            faces = img.find_features(face_cascade, threshold=0.9, scale_factor=1.25)
+            face_detected = False  # Flag to check if any face is detected
+
+            for face in faces:
+                face_detected = True  # Set flag to true as face is detected
+                img.draw_rectangle(face)
+
+                # Turn on white LED as soon as a face is detected
+                led_off()
+                led_blue.on()
+                led_red.on()
+                led_green.on()
+
+                # Crop the image to the face region
+                face_img = img.copy(roi=face)
+                # Run emotion recognition on the cropped face image
+                emotion_detected = False
+                for obj in net.classify(face_img, min_scale=1.0, scale_mul=0.8, x_overlap=0.5, y_overlap=0.5):
+                    predictions_list = list(zip(labels, obj.output()))
+                    for label, confidence in predictions_list:
+                        print("%s = %f" % (label, confidence))
+                        if label == 'sad' and confidence > 0.4:
+                            led_off()
+                            led_blue.on()
+                            time.sleep(1.2)
+                            emotion_detected = True
+                            break
+                        elif label == 'happy' and confidence > 0.8:
+                            led_off()
+                            led_green.on()
+                            time.sleep(1.2)
+                            emotion_detected = True
+                            break
+                    if emotion_detected:
+                        break
+                break  # Exit the loop after processing the first face
+
+            if not face_detected:
+                led_off()
+                led_red.on()  # Turn on red LED if no face is detected
+
+            print(clock.fps(), "fps")
+
+            if loop_switch == 0:
+                led_off()
+                led_green.on()
+                led_blue.on()
+                i2c = I2C(1, I2C.SLAVE, addr=0x42)
+                readData()
