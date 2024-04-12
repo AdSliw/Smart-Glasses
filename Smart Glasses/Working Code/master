@@ -1,0 +1,60 @@
+#include <Wire.h>
+#include "Nicla_System.h"
+
+const byte deviceAddress = 0x42; 
+String inputString = "";  // A String to hold incoming data
+
+void setup() {
+    nicla::begin();
+    nicla::leds.begin();
+    Wire.begin();
+    Serial.begin(9600);  // Start serial communication at 9600 baud to debug
+    inputString.reserve(200); // Reserve 200 bytes for the inputString  
+    delay(5000);
+    Serial.print("\nI2C comms initiated.");
+    Serial.print("\nType: 'voice' or 'muted' to communicate with Nicla Voice");
+}
+
+void loop() {
+    nicla::leds.setColor(green);
+    delay(500);
+    nicla::leds.setColor(off);
+    if (Serial.available()) {
+      // Read the incoming data
+      inputString = Serial.readStringUntil('\n');
+    if (inputString == "voice") {
+    Wire.beginTransmission(deviceAddress);
+    Wire.write("voice", 5); 
+    Serial.print("\nSent: voice");
+    nicla::leds.setColor(blue);
+    byte error = Wire.endTransmission();
+      if (error) {
+        Serial.print("\nMessage not received. ");
+        Serial.print("\nTransmission error: ");
+        Serial.println(error);
+        nicla::leds.setColor(red);
+      }
+      else {
+        Serial.print("\nMessage: 'voice' received. ");
+      }
+      delay(1000);
+    }
+    if (inputString == "muted") {
+    Wire.beginTransmission(deviceAddress);
+    Wire.write("muted", 5);
+    Serial.print("\nSent: muted"); 
+    nicla::leds.setColor(green);
+    byte error = Wire.endTransmission();
+      if (error) {
+        Serial.print("\nMessage not received. ");
+        Serial.print("\nTransmission error: ");
+        Serial.println(error);
+        nicla::leds.setColor(red);
+      }
+      else {
+        Serial.print("\nMessage: 'muted' received. ");
+      }
+      delay(1000);
+    }
+  }
+}
